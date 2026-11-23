@@ -1,0 +1,30 @@
+{
+  "name": "sumoflix-scraper-api",
+  "version": "1.0.0",
+  "description": "Ready-made Bollywood and Multi-Source Movie/Series Scraper API for Vercel Serverless",
+  "main": "api/index.js",
+  "scripts": {
+    "start": "node api/index.js",
+    "dev": "nodemon api/index.js"
+  },
+  "keywords": [
+    "scraper",
+    "bollywood",
+    "movies",
+    "hindi-dubbed",
+    "streaming",
+    "api",
+    "vercel"
+  ],
+  "author": "SumoFlix Team",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.7.9",
+    "cheerio": "^1.0.0-rc.12",
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
