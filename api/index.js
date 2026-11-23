@@ -449,6 +449,164 @@ app.get("/api/auth/profile", async (req, res) => {
   }
 });
 
+// 10. AllMovieLand Stream Scraper & Clean Ad-Free Player (Server 8)
+const ALLMOVIELAND_TMDB_BEARER =
+  "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI2NWU1ZDQ2MGQ2YzNkZmIwYjE2YzZiNDM3ODcwNjEyNSIsIm5iZiI6MTc3NzY2NjQyOC42NTUsInN1YiI6IjY5ZjUwOTdjMjM2ZmQ2MzljYjg3ZTMzYyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.jACatSE3cnVhpUKGLuELs9ehHm1N_pN4DbXtd7uIWDk";
+
+async function getImdbId(tmdbId, type = "movie") {
+  if (typeof tmdbId === "string" && tmdbId.startsWith("tt")) return tmdbId;
+  try {
+    const res = await axios.get(
+      `https://api.themoviedb.org/3/${type === "tv" ? "tv" : "movie"}/${tmdbId}/external_ids`,
+      {
+        headers: { Authorization: `Bearer ${ALLMOVIELAND_TMDB_BEARER}` },
+        timeout: 6000,
+      }
+    );
+    return res.data?.imdb_id || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function scrapeAllMovieLandStreams(imdbId) {
+  const referer = "https://allmovieland.art/";
+  const playUrl = `https://luxki440das.com/play/${imdbId}`;
+
+  const pageRes = await axios.get(playUrl, {
+    headers: {
+      "User-Agent": HEADERS["User-Agent"],
+      Referer: referer,
+      Accept: "text/html",
+    },
+    timeout: 8000,
+  });
+
+  const html = pageRes.data;
+  const match = html.match(/let\s+p3\s*=\s*(\{.*?\});/);
+  if (!match) throw new Error("Could not extract player configs");
+
+  const p3 = JSON.parse(match[1]);
+  if (!p3.file || !p3.key) throw new Error("Missing playlist URL or key");
+
+  const playlistRes = await axios.post(p3.file, null, {
+    headers: {
+      "X-CSRF-TOKEN": p3.key,
+      Referer: playUrl,
+      "User-Agent": HEADERS["User-Agent"],
+    },
+    timeout: 8000,
+  });
+
+  let raw = playlistRes.data;
+  if (typeof raw === "string") {
+    try {
+      raw = JSON.parse(raw.replace(/(\,)\s*\[\]/, ""));
+    } catch {}
+  }
+
+  const items = Array.isArray(raw) ? raw.filter((x) => x && x.file) : [];
+  return {
+    imdbId,
+    p3,
+    streams: items.map((i) => ({
+      title: i.title || "Multi Audio",
+      file: i.file,
+      id: i.id,
+    })),
+  };
+}
+
+// API endpoint to get JSON stream info
+app.get("/api/allmoviesland", async (req, res) => {
+  const { tmdb, imdb, type = "movie" } = req.query;
+  const targetImdb = imdb || (tmdb ? await getImdbId(tmdb, type) : null);
+
+  if (!targetImdb) {
+    return res.status(400).json({ success: false, error: "Missing or invalid TMDB/IMDb ID." });
+  }
+
+  try {
+    const data = await scrapeAllMovieLandStreams(targetImdb);
+    return res.json({ success: true, imdbId: targetImdb, ...data });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Ad-Free Clean Player for Server 8
+app.get("/api/allmoviesland/player", async (req, res) => {
+  const { tmdb, imdb, type = "movie", season = 1, episode = 1 } = req.query;
+  const targetImdb = imdb || (tmdb ? await getImdbId(tmdb, type) : null);
+
+  if (!targetImdb) {
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+        <head><meta charset="utf-8"><style>body{background:#0b0b0f;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;}</style></head>
+        <body><div style="text-align:center;"><h2>⚠️ Media Not Found</h2><p>Could not resolve IMDb ID for this title.</p></div></body>
+      </html>
+    `);
+  }
+
+  // Render ultra-fast ad-free player with iframe sandbox protection
+  const cleanEmbedUrl = `https://luxki440das.com/play/${targetImdb}`;
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SumoFlix - Server 8 (AllMovieLand Ad-Free)</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #0B0B0F; }
+    #wrapper { position: relative; width: 100%; height: 100%; }
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: #000;
+    }
+    .badge {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 999;
+      background: rgba(229, 9, 20, 0.85);
+      color: #fff;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      pointer-events: none;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    }
+  </style>
+</head>
+<body>
+  <div id="wrapper">
+    <div class="badge">SUMOFLIX • SERVER 8 (ALLMOVIELAND HD)</div>
+    <iframe
+      src="${cleanEmbedUrl}"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+      allowfullscreen
+      sandbox="allow-scripts allow-same-origin allow-forms"
+    ></iframe>
+  </div>
+  <script>
+    // Kill unauthorized window.open popups created by external ad scripts
+    window.open = function() { console.log('Ad popup blocked by SumoFlix'); return null; };
+  </script>
+</body>
+</html>`;
+
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  return res.send(html);
+});
+
 // Port listener for local Node.js execution
 if (process.env.NODE_ENV !== "production") {
   const PORT = process.env.PORT || 4000;
